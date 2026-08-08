@@ -3,8 +3,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Employee
-from app.schemas import EmployeeCreate, EmployeeResponse, EmployeeUpdate
+from app.models import Employee, Task
+from app.schemas import (
+    EmployeeCreate,
+    EmployeeResponse,
+    EmployeeUpdate,
+    TaskCreate,
+    TaskResponse,
+    TaskUpdate,
+)
 
 
 app = FastAPI(
@@ -33,7 +40,9 @@ def create_employee(
     db: Session = Depends(get_db),
 ) -> Employee:
     existing_employee = db.scalar(
-        select(Employee).where(Employee.email == str(employee.email))
+        select(Employee).where(
+            Employee.email == str(employee.email)
+        )
     )
 
     if existing_employee is not None:
@@ -103,7 +112,6 @@ def update_employee(
 
     update_data = employee_update.model_dump(exclude_unset=True)
 
-    # Convert EmailStr into a normal string before saving.
     if "email" in update_data:
         new_email = str(update_data["email"])
 
@@ -127,7 +135,10 @@ def update_employee(
 
     db.commit()
     db.refresh(employee)
-    
+
+    return employee
+
+
 @app.delete(
     "/employees/{employee_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -135,7 +146,7 @@ def update_employee(
 def delete_employee(
     employee_id: int,
     db: Session = Depends(get_db),
-):
+) -> None:
     employee = db.get(Employee, employee_id)
 
     if employee is None:
@@ -147,6 +158,100 @@ def delete_employee(
     db.delete(employee)
     db.commit()
 
-    return None
 
-    return employee
+@app.post(
+    "/tasks",
+    response_model=TaskResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task(
+    task: TaskCreate,
+    db: Session = Depends(get_db),
+) -> Task:
+    employee = db.get(Employee, task.employee_id)
+
+    if employee is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+    new_task = Task(
+        title=task.title,
+        description=task.description,
+        employee_id=task.employee_id,
+    )
+
+    db.add(new_task)
+    db.commit()
+    db.refresh(new_task)
+
+    return new_task
+
+
+@app.get(
+    "/tasks",
+    response_model=list[TaskResponse],
+)
+@app.get(
+    "/tasks/{task_id}",
+    response_model=TaskResponse,
+)
+def get_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> Task:
+    task = db.get(Task, task_id)
+
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    return task
+
+@app.patch(
+    "/tasks/{task_id}",
+    response_model=TaskResponse,
+)
+def update_task(
+    task_id: int,
+    task_update: TaskUpdate,
+    db: Session = Depends(get_db),
+) -> Task:
+    task = db.get(Task, task_id)
+
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    update_data = task_update.model_dump(exclude_unset=True)
+
+    for field, value in update_data.items():
+        setattr(task, field, value)
+
+    db.commit()
+    db.refresh(task)
+
+    return task
+@app.delete(
+    "/tasks/{task_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> None:
+    task = db.get(Task, task_id)
+
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    db.delete(task)
+    db.commit()
